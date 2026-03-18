@@ -1,0 +1,4 @@
+strategy: ma
+params:
+  short_window: 5
+  long_window: 20

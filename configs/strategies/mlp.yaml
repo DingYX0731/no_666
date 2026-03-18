@@ -1,0 +1,5 @@
+strategy: mlp
+params:
+  ckpt_path: checkpoints/mlp/default.npz
+  threshold_buy: 0.55
+  threshold_sell: 0.45
