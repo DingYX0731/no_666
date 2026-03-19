@@ -99,7 +99,12 @@ def run_backtest(
     history: List[float] = []
     for price in prices:
         history.append(price)
-        signal = strategy.generate_signal(history, base)
+        signal = strategy.generate_signal(
+            history,
+            base,
+            quote_free=quote,
+            last_price=price,
+        )
 
         if signal == "BUY" and quote > 0:
             raw_qty = quote / price
@@ -179,7 +184,12 @@ def main() -> None:
     else:
         prices = synthetic_prices(500)
 
-    strategy = build_strategy(strategy_name=args.strategy, strategy_config=args.strategy_config)
+    pair_label = args.symbol.strip().upper()
+    strategy = build_strategy(
+        strategy_name=args.strategy,
+        strategy_config=args.strategy_config,
+        pair=pair_label,
+    )
     result = run_backtest(prices=prices, strategy=strategy)
 
     print("=== Backtest Result ===")

@@ -12,3 +12,4 @@ Examples:
 
 - `configs/strategies/ma.yaml`
 - `configs/strategies/mlp.yaml`
+- `configs/strategies/drl.yaml` (per-pair PPO checkpoints under `checkpoints/drl/`)

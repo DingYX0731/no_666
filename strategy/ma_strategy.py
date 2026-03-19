@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from statistics import mean
-from typing import Sequence
+from typing import Any, Sequence
 
 from .base import BaseStrategy
 
@@ -24,7 +24,12 @@ class MovingAverageCrossStrategy(BaseStrategy):
     def required_prices(self) -> int:
         return self.long_window + 1
 
-    def generate_signal(self, prices: Sequence[float], position_coin: float) -> str:
+    def generate_signal(
+        self,
+        prices: Sequence[float],
+        position_coin: float,
+        **kwargs: Any,
+    ) -> str:
         if len(prices) < self.required_prices:
             return "HOLD"
 

@@ -1,0 +1,4 @@
+strategy: drl
+params:
+  model_dir: checkpoints/drl
+  deterministic: true

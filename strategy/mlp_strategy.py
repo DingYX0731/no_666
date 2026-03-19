@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -34,7 +34,12 @@ class MLPCheckpointStrategy(BaseStrategy):
         # Returns size is len(prices)-1, so we need lookback + 1 closes.
         return self.lookback + 1
 
-    def generate_signal(self, prices: Sequence[float], position_coin: float) -> str:
+    def generate_signal(
+        self,
+        prices: Sequence[float],
+        position_coin: float,
+        **kwargs: Any,
+    ) -> str:
         if len(prices) < self.required_prices:
             return "HOLD"
 

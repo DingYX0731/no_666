@@ -89,7 +89,11 @@ def run(
     states: dict[str, PairState] = {}
     strategies: dict[str, BaseStrategy] = {}
     for pair in target_pairs:
-        strategy = build_strategy(strategy_name=strategy_name, strategy_config=strategy_config)
+        strategy = build_strategy(
+            strategy_name=strategy_name,
+            strategy_config=strategy_config,
+            pair=pair,
+        )
         strategies[pair] = strategy
         states[pair] = PairState(
             prices=deque(maxlen=max(strategy.required_prices + 5, settings.long_window + 5)),
@@ -129,6 +133,8 @@ def run(
                 signal = strategies[pair].generate_signal(
                     prices=list(state.prices),
                     position_coin=base_free,
+                    quote_free=quote_free,
+                    last_price=price,
                 )
 
                 logger.info(

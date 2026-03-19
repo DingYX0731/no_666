@@ -2,3 +2,4 @@ requests
 python-dotenv
 numpy
 PyYAML
+gymnasium>=0.29.0

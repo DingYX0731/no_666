@@ -8,12 +8,14 @@ from typing import Any
 import yaml
 
 from .base import BaseStrategy
+from .drl_strategy import DRLSb3Strategy
 from .ma_strategy import MovingAverageCrossStrategy
 from .mlp_strategy import MLPCheckpointStrategy
 
 _STRATEGY_REGISTRY = {
     "ma": MovingAverageCrossStrategy,
     "mlp": MLPCheckpointStrategy,
+    "drl": DRLSb3Strategy,
 }
 
 
@@ -39,8 +41,16 @@ def _read_strategy_params(config_path: Path, strategy_name: str) -> dict[str, An
     return params
 
 
-def build_strategy(strategy_name: str, strategy_config: str = "") -> BaseStrategy:
-    """Build a concrete strategy instance from yaml."""
+def build_strategy(
+    strategy_name: str,
+    strategy_config: str = "",
+    *,
+    pair: str | None = None,
+) -> BaseStrategy:
+    """Build a concrete strategy instance from yaml.
+
+    ``pair`` is required for ``drl`` (selects checkpoints/drl/<PAIR>_ppo.zip per product).
+    """
     strategy_key = strategy_name.strip().lower()
     if strategy_key not in _STRATEGY_REGISTRY:
         raise ValueError(f"Unsupported strategy '{strategy_name}'. Available: {sorted(_STRATEGY_REGISTRY.keys())}")
@@ -48,4 +58,11 @@ def build_strategy(strategy_name: str, strategy_config: str = "") -> BaseStrateg
     config_path = Path(strategy_config) if strategy_config else _default_config_path(strategy_key)
     params = _read_strategy_params(config_path, strategy_key)
     cls = _STRATEGY_REGISTRY[strategy_key]
+    if strategy_key == "drl":
+        if not pair:
+            raise ValueError(
+                "Strategy 'drl' requires a trading pair. "
+                "Use run_trader with explicit --symbols or backtest with --symbol."
+            )
+        return cls(pair=pair.strip().upper(), **params)
     return cls(**params)
