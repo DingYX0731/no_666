@@ -1,157 +1,171 @@
-# NO_666 Trade
+# no\_666
 
-Standardized quantitative trading repository with:
+Automated cryptocurrency trading framework with pluggable strategy support, historical data pipelines, and model training infrastructure.
 
-- live execution on Roostoo
-- reusable data interface for research
-- backtest, training, and model checkpoint deployment
+## Features
 
----
+- Live trading on Roostoo exchange (single-pair, multi-pair, or all tradable pairs)
+- Pluggable strategy system with YAML-driven configuration
+- Backtesting engine with multiple data sources
+- Binance public kline/trade data fetcher with local caching
+- MLP and Deep RL (PPO with MLP+LSTM) model training pipelines
+- Per-run isolated logging
 
-## Root Entrypoints
+## Repository Layout
 
-- `run_ops.py`: operational commands (products, ticker, balance, orders)
-- `run_trader.py`: live trading loop
-- `run_backtest.py`: backtest runner
-- `run_fetch_data.py`: historical data fetch runner
-- `run_train_mlp.py`: model training runner
-- `run_train_drl.py`: per-product PPO training (Stable-Baselines3)
+```
+no_666/
+├── run_ops.py              # Account and order operations
+├── run_trader.py           # Live trading loop
+├── run_backtest.py         # Backtesting engine
+├── run_fetch_data.py       # Historical data downloader
+├── run_train_mlp.py        # MLP training entrypoint
+├── run_train_drl.py        # DRL (PPO) training entrypoint
+├── strategy/               # Strategy base class, implementations, factory
+├── ml/                     # Model architectures, trainers, environments, loss
+├── ml_demo/                # Training demo scripts
+├── trade/                  # Exchange client, trading engine, logging
+├── risk/                   # Risk management
+├── ops/                    # Operational CLI (balance, orders, ticker)
+├── data/                   # Canonical data access layer
+├── data_interface/         # Binance public data client
+├── configs/
+│   ├── strategies/         # Inference/trading configs (per strategy)
+│   └── ml/                 # Training configs (per model type)
+├── docs/                   # Documentation
+├── requirements.txt        # Core dependencies
+└── requirements-drl.txt    # Optional: PyTorch + Stable-Baselines3
+```
 
----
-
-## API Credentials
-
-Use shell environment variables directly:
+## Quick Start
 
 ```bash
-export ROOSTOO_API_KEY="your_api_key"
-export ROOSTOO_API_SECRET="your_api_secret"
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Set credentials via environment variables:
+
+```bash
+export ROOSTOO_API_KEY="..."
+export ROOSTOO_API_SECRET="..."
+```
+
+Verify connectivity:
+
+```bash
 python run_ops.py server-time
+python run_ops.py products
 ```
 
-One-line style:
+## Strategies
+
+All strategies extend `strategy.BaseStrategy` and implement `generate_signal()`. Strategy parameters are loaded from `configs/strategies/<name>.yaml`.
+
+| Strategy | Config | Description |
+|----------|--------|-------------|
+| `ma` | `configs/strategies/ma.yaml` | Moving average crossover |
+| `mlp` | `configs/strategies/mlp.yaml` | Trained MLP binary classifier |
+| `drl` | `configs/strategies/drl.yaml` | PPO agent with MLP+LSTM extractor (one checkpoint per pair) |
+
+### Adding a New Strategy
+
+1. Create `strategy/<name>_strategy.py` extending `BaseStrategy`
+2. Register in `strategy/factory.py`
+3. Add `configs/strategies/<name>.yaml`
+
+## Configuration
+
+Training and inference configs are intentionally separated:
+
+| Purpose | Path |
+|---------|------|
+| MLP training | `configs/ml/mlp_train.yaml` |
+| DRL training | `configs/ml/drl_train.yaml` |
+| MA inference | `configs/strategies/ma.yaml` |
+| MLP inference | `configs/strategies/mlp.yaml` |
+| DRL inference | `configs/strategies/drl.yaml` |
+
+## Trading
 
 ```bash
-ROOSTOO_API_KEY="your_api_key" ROOSTOO_API_SECRET="your_api_secret" python run_trader.py --symbols BTC/USD --strategy ma --once
-```
+# Single pair
+python run_trader.py --symbols BTC/USD --strategy ma --once
 
-`.env` is optional and can be kept as a convenience fallback.
-
----
-
-## Strategy Architecture
-
-The strategy layer is class-based and yaml-driven:
-
-- base class: `strategy/base.py`
-- factory: `strategy/factory.py`
-- implementations: `strategy/ma_strategy.py`, `strategy/mlp_strategy.py`, `strategy/drl_strategy.py`
-- configs: `configs/strategies/<strategy>.yaml`
-
-Each strategy implements:
-
-- `required_prices`
-- `generate_signal(prices, position_coin, **kwargs) -> BUY | SELL | HOLD` (optional `quote_free`, `last_price` for DRL)
-
-Default strategy configs:
-
-- `configs/strategies/ma.yaml`
-- `configs/strategies/mlp.yaml`
-- `configs/strategies/drl.yaml`
-
-Use by strategy name:
-
-```bash
-python run_trader.py --symbols BTC/USD --strategy ma
-python run_trader.py --symbols BTC/USD --strategy mlp
+# Multiple pairs
 python run_trader.py --symbols BTC/USD,ETH/USD --strategy drl
-python run_backtest.py --data-source binance --symbol BTC/USD --interval 1h --start-date 2024-01-01 --end-date 2024-01-15 --strategy mlp
+
+# All tradable pairs
+python run_trader.py --symbols all --strategy ma
 ```
 
-Optional custom strategy yaml path:
+Logs are written to `logs/trading/YYYYMMDD/<run_name>/trader.log`.
+
+## Backtesting
 
 ```bash
-python run_trader.py --symbols BTC/USD --strategy mlp --strategy-config configs/strategies/mlp.yaml
+# Synthetic data
+python run_backtest.py --data-source synthetic --strategy ma
+
+# Binance historical data
+python run_backtest.py --data-source binance --symbol BTC/USD --interval 1h \
+  --start-date 2024-01-01 --end-date 2024-02-01 --strategy drl
+
+# CSV file
+python run_backtest.py --data-source csv --csv data.csv --price-col close --strategy ma
 ```
 
----
+## Model Training
 
-## Model Training and Deployment
-
-Train and save model checkpoint:
+### MLP
 
 ```bash
-python run_train_mlp.py --symbol BTC/USD --interval 1h --start-date 2024-01-01 --end-date 2024-01-15 --ckpt-path checkpoints/mlp/default.npz
+python run_train_mlp.py --config configs/ml/mlp_train.yaml
 ```
 
-Checkpoint contains:
+Produces `checkpoints/mlp/*.npz` containing weights and normalization stats.
 
-- model architecture metadata
-- learned weights
-- feature normalization stats
+### DRL (PPO)
 
-Deploy in live trader:
-
-```bash
-python run_trader.py --symbols BTC/USD --strategy mlp
-```
-
-The default `mlp` strategy reads checkpoint path from:
-
-- `configs/strategies/mlp.yaml`
-
----
-
-## DRL (FinRL-style crypto env + PPO)
-
-FinRL reference clone: `../FinRL` (see `docs/DRL_AND_FINRL.md`).
-
-Install extra deps, then train **one agent per symbol**:
+Requires additional dependencies:
 
 ```bash
 pip install -r requirements-drl.txt
-python run_train_drl.py --symbol BTC/USD --start-date 2024-01-01 --end-date 2024-02-01 --timesteps 50000
 ```
 
-Trade with the saved checkpoint:
+Train one agent per symbol:
 
 ```bash
-python run_trader.py --symbols BTC/USD --strategy drl
+python run_train_drl.py --config configs/ml/drl_train.yaml
 ```
 
----
+Produces per-pair artifacts under `checkpoints/drl/`:
 
-## Backtest
+- `<PAIR>_ppo.zip` (SB3 model)
+- `<PAIR>_meta.json` (architecture and training metadata)
 
-Synthetic:
+The DRL feature extractor uses a configurable MLP+LSTM architecture. All hyperparameters (LSTM size, layer count, MLP dimensions, PPO settings) are managed in `configs/ml/drl_train.yaml`.
+
+## Historical Data
 
 ```bash
-python run_backtest.py --data-source synthetic --strategy ma
+python run_fetch_data.py --symbol BTC/USD --dataset klines --interval 1h \
+  --frequency daily --start-date 2024-01-01 --end-date 2024-01-15
 ```
 
-CSV:
+Data source: [Binance Public Data](https://github.com/binance/binance-public-data). Downloaded files are cached locally under `data_cache/`.
+
+## Operations
 
 ```bash
-python run_backtest.py --data-source csv --csv your_data.csv --price-col close --strategy ma
+python run_ops.py server-time
+python run_ops.py products
+python run_ops.py ticker --pair BTC/USD
+python run_ops.py balance --pair BTC/USD
+python run_ops.py orders --pair BTC/USD
+python run_ops.py place-order --pair BTC/USD --side BUY --type MARKET --quantity 0.001 --force
 ```
 
-Binance + MLP strategy:
+## License
 
-```bash
-python run_backtest.py --data-source binance --symbol BTC/USD --interval 1h --start-date 2024-01-01 --end-date 2024-01-15 --strategy mlp
-```
-
-Binance + DRL (match `--symbol` to trained pair):
-
-```bash
-python run_backtest.py --data-source binance --symbol BTC/USD --interval 1h --start-date 2024-01-01 --end-date 2024-02-01 --strategy drl
-```
-
----
-
-## Documentation
-
-- `docs/DEPLOYMENT_GUIDE.md`
-- `docs/QUICK_REFERENCE.md`
-- `docs/BINANCE_DATA_INTERFACE.md`
-- `docs/DRL_AND_FINRL.md`
+MIT

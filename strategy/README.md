@@ -23,3 +23,9 @@ Parameters are managed by yaml:
 
 - `configs/strategies/ma.yaml`
 - `configs/strategies/mlp.yaml`
+- `configs/strategies/drl.yaml`
+
+Training-only parameters are intentionally separated:
+
+- `configs/ml/mlp_train.yaml`
+- `configs/ml/drl_train.yaml`

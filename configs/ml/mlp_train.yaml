@@ -1,0 +1,31 @@
+data:
+  symbol: BTC/USD
+  interval: 1h
+  frequency: daily
+  market: spot
+  start_date: 2024-01-01
+  end_date: 2024-03-31
+  limit: 0
+  quote_asset: USDT
+  cache_dir: data_cache/binance_public_data
+
+features:
+  lookback: 20
+  train_ratio: 0.8
+
+model:
+  hidden_dim: 16
+
+loss:
+  name: bce
+  eps: 1.0e-8
+  eval_threshold: 0.5
+
+train:
+  lr: 0.01
+  epochs: 300
+  seed: 42
+
+out:
+  ckpt_path: checkpoints/mlp/default.npz
+

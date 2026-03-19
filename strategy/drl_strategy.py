@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from drl.io_utils import load_drl_meta, pair_to_slug
+from ml.drl_utils import load_drl_meta, pair_to_slug
 
 from .base import BaseStrategy
 
@@ -43,7 +43,10 @@ class DRLSb3Strategy(BaseStrategy):
             raise ImportError(
                 "DRL strategy requires: pip install -r requirements-drl.txt"
             ) from exc
-        self._model = PPOCls.load(str(self._model_path))
+        # Ensure custom extractor class module is importable when loading checkpoint.
+        from ml import drl_model_architecture as _drl_arch  # noqa: F401
+
+        self._model = PPOCls.load(str(self._model_path), device="cpu")
 
     @property
     def required_prices(self) -> int:
@@ -82,7 +85,7 @@ class DRLSb3Strategy(BaseStrategy):
 
         obs = self._build_obs(prices, position_coin, quote_free, last_price)
         action, _ = self._model.predict(obs, deterministic=self.deterministic)
-        a = int(action) if not isinstance(action, (list, np.ndarray)) else int(action[0])
+        a = int(action.item()) if isinstance(action, np.ndarray) else int(action)
 
         if a == 1 and position_coin <= 0 and quote_free > 0:
             return "BUY"

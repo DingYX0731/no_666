@@ -1,0 +1,44 @@
+data:
+  symbol: BTC/USD
+  interval: 1h
+  frequency: daily
+  market: spot
+  start_date: 2024-01-01
+  end_date: 2024-03-31
+  limit: 0
+  quote_asset: USDT
+  cache_dir: data_cache/binance_public_data
+
+env:
+  lookback: 20
+  initial_cash: 10000.0
+  buy_cost_pct: 0.0008
+  sell_cost_pct: 0.0008
+  buy_fraction: 0.25
+  sell_fraction: 0.5
+
+architecture:
+  lstm_hidden_size: 64
+  lstm_layers: 1
+  lstm_dropout: 0.0
+  seq_mlp_hidden_dims: "64"
+  account_mlp_hidden_dims: "16"
+  fusion_hidden_dims: "64"
+  policy_hidden_dims: "64,64"
+
+ppo:
+  learning_rate: 0.0003
+  n_steps: 2048
+  batch_size: 64
+  gamma: 0.99
+  gae_lambda: 0.95
+  ent_coef: 0.0
+  clip_range: 0.2
+
+train:
+  timesteps: 50000
+  seed: 42
+
+out:
+  out_dir: checkpoints/drl
+

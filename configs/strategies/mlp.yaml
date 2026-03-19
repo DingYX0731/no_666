@@ -3,3 +3,4 @@ params:
   ckpt_path: checkpoints/mlp/default.npz
   threshold_buy: 0.55
   threshold_sell: 0.45
+# Note: training-related params are in configs/ml/mlp_train.yaml

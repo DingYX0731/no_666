@@ -82,7 +82,8 @@ logs/trading/YYYYMMDD/<run_name>/trader.log
 Train and save checkpoint:
 
 ```bash
-python run_train_mlp.py --symbol BTC/USD --interval 1h --start-date 2024-01-01 --end-date 2024-01-15 --ckpt-path checkpoints/mlp/default.npz
+python run_train_mlp.py --config configs/ml/mlp_train.yaml
+python run_train_drl.py --config configs/ml/drl_train.yaml
 ```
 
 Deploy checkpoint in live trading:

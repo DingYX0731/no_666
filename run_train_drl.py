@@ -1,6 +1,6 @@
-"""Train a per-product PPO agent (see drl/train_sb3.py)."""
+"""Train a per-product PPO agent (see ml_demo/train_drl_agent_demo.py)."""
 
-from drl.train_sb3 import main
+from ml_demo.train_drl_agent_demo import main
 
 
 if __name__ == "__main__":

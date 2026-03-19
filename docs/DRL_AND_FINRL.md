@@ -16,12 +16,14 @@ Relevant FinRL modules for **cryptocurrency** trading:
 
 We do **not** vendor FinRL as a dependency. Instead:
 
-1. **`drl/crypto_env.py`** — Gymnasium env with the same *ideas* as FinRL crypto envs: single asset, fees, discrete actions, portfolio return as step reward.
-2. **`drl/train_sb3.py`** + **`run_train_drl.py`** — train **one PPO agent per symbol** using Binance public klines (same data path as the rest of `no_666`).
+1. **`ml/drl_env.py`** — Gymnasium env with the same *ideas* as FinRL crypto envs: single asset, fees, discrete actions, portfolio return as step reward.
+2. **`ml/drl_model_architecture.py`** — custom **MLP + LSTM** feature extractor for PPO policy.
+3. **`ml/drl_trainer.py`** + **`ml_demo/train_drl_agent_demo.py`** + **`run_train_drl.py`** — train **one PPO agent per symbol** using Binance public klines.
+   Training hyperparameters are maintained in `configs/ml/drl_train.yaml`.
 3. **Artifacts** (per pair, filesystem-safe slug e.g. `BTC_USD`):
    - `checkpoints/drl/<PAIR>_ppo.zip`
    - `checkpoints/drl/<PAIR>_meta.json`
-4. **`strategy/drl_strategy.py`** — loads the pair-specific zip + meta and maps policy actions to `BUY` / `SELL` / `HOLD` in the live/backtest loop.
+4. **`strategy/drl_strategy.py`** — loads pair-specific zip + meta and maps policy actions to `BUY` / `SELL` / `HOLD` in live/backtest.
 
 ## Dependencies
 
@@ -35,7 +37,7 @@ Train for one product:
 ```bash
 pip install -r requirements.txt
 pip install -r requirements-drl.txt
-python run_train_drl.py --symbol BTC/USD --start-date 2024-01-01 --end-date 2024-02-01 --timesteps 50000
+python run_train_drl.py --config configs/ml/drl_train.yaml
 ```
 
 Live / backtest:

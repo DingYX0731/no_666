@@ -59,5 +59,6 @@ python run_backtest.py --data-source binance --symbol BTC/USD --interval 1h --fr
 
 ```bash
 python run_fetch_data.py --symbol BTC/USD --dataset klines --interval 1h --frequency daily --start-date 2024-01-01 --end-date 2024-01-03 --preview-rows 3
-python run_train_mlp.py --symbol BTC/USD --interval 1h --start-date 2024-01-01 --end-date 2024-01-15 --ckpt-path checkpoints/mlp/default.npz
+python run_train_mlp.py --config configs/ml/mlp_train.yaml
+python run_train_drl.py --config configs/ml/drl_train.yaml
 ```

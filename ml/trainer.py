@@ -18,6 +18,9 @@ class TrainerConfig:
     lr: float = 0.01
     epochs: int = 300
     seed: int = 42
+    loss_name: str = "bce"
+    bce_eps: float = 1e-8
+    eval_threshold: float = 0.5
 
 
 @dataclass
@@ -37,7 +40,9 @@ class MLPTrainer:
 
     def __init__(self, config: TrainerConfig):
         self.config = config
-        self.loss_fn = BinaryCrossEntropyLoss()
+        if config.loss_name.lower() != "bce":
+            raise ValueError(f"Unsupported loss_name='{config.loss_name}'. Only 'bce' is currently supported.")
+        self.loss_fn = BinaryCrossEntropyLoss(eps=config.bce_eps)
 
     @staticmethod
     def standardize(train_x: np.ndarray, test_x: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -69,9 +74,13 @@ class MLPTrainer:
         test_pred = model.predict_proba(test_x)
         report = TrainReport(
             train_loss=self.loss_fn.value(train_pred, train_y),
-            train_acc=self.loss_fn.accuracy(train_pred, train_y),
+            train_acc=self.loss_fn.accuracy(
+                train_pred, train_y, threshold=self.config.eval_threshold
+            ),
             test_loss=self.loss_fn.value(test_pred, test_y),
-            test_acc=self.loss_fn.accuracy(test_pred, test_y),
+            test_acc=self.loss_fn.accuracy(
+                test_pred, test_y, threshold=self.config.eval_threshold
+            ),
             samples=len(train_x) + len(test_x),
             features=train_x.shape[1],
         )

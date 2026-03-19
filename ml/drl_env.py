@@ -1,12 +1,4 @@
-"""Single-asset crypto trading Gymnasium env inspired by FinRL CryptoEnv.
-
-Reference: AI4Finance-Foundation/FinRL
-`finrl/meta/env_cryptocurrency_trading/env_multiple_crypto.py`
-(cash, positions, fees, portfolio-value reward).
-
-This env uses one symbol, discrete actions mapped to hold/buy/sell fractions,
-and an observation of recent log-returns plus account ratios for SB3/PPO.
-"""
+"""Single-asset crypto Gymnasium env inspired by FinRL CryptoEnv."""
 
 from __future__ import annotations
 
@@ -18,7 +10,7 @@ from gymnasium import spaces
 
 
 class CryptoSingleAssetEnv(gym.Env):
-    """One-asset spot simulator on a close-price series."""
+    """One-asset spot simulator on close-price series."""
 
     metadata: dict[str, Any] = {"render_modes": []}
 
@@ -57,7 +49,7 @@ class CryptoSingleAssetEnv(gym.Env):
         return self._cash + self._base * self.prices[t]
 
     def _obs(self, t: int) -> np.ndarray:
-        # lookback+1 closes -> lookback log-returns (aligned with training/live strategy)
+        # lookback+1 closes -> lookback log-returns
         window = self.prices[t - self.lookback : t + 1]
         prev = window[:-1]
         nxt = window[1:]
@@ -66,7 +58,9 @@ class CryptoSingleAssetEnv(gym.Env):
         cash_ratio = np.array([self._cash / eq], dtype=np.float64)
         pos_value = self._base * self.prices[t]
         pos_ratio = np.array([pos_value / eq], dtype=np.float64)
-        return np.concatenate([log_ret.astype(np.float64), cash_ratio, pos_ratio]).astype(np.float32)
+        return np.concatenate([log_ret.astype(np.float64), cash_ratio, pos_ratio]).astype(
+            np.float32
+        )
 
     def reset(
         self,
@@ -75,12 +69,14 @@ class CryptoSingleAssetEnv(gym.Env):
         options: dict[str, Any] | None = None,
     ) -> tuple[np.ndarray, dict[str, Any]]:
         super().reset(seed=seed)
-        self._t = self.lookback  # first index with full return window [t-lookback:t]
+        self._t = self.lookback
         self._cash = self.initial_cash
         self._base = 0.0
         return self._obs(self._t), {}
 
-    def step(self, action: int) -> tuple[np.ndarray, SupportsFloat, bool, bool, dict[str, Any]]:
+    def step(
+        self, action: int
+    ) -> tuple[np.ndarray, SupportsFloat, bool, bool, dict[str, Any]]:
         t = self._t
         price = self.prices[t]
         equity_before = self._equity(t)
@@ -103,3 +99,4 @@ class CryptoSingleAssetEnv(gym.Env):
         reward = float((equity_after - equity_before) / max(equity_before, 1e-12))
         obs = self._obs(t2)
         return obs, reward, terminated, False, {}
+
