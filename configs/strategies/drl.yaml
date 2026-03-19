@@ -2,4 +2,5 @@ strategy: drl
 params:
   model_dir: checkpoints/drl
   deterministic: true
+  device: auto
 # Note: DRL training/network params are in configs/ml/drl_train.yaml

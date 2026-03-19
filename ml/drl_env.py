@@ -1,4 +1,9 @@
-"""Single-asset crypto Gymnasium env inspired by FinRL CryptoEnv."""
+"""Single-asset crypto Gymnasium env inspired by FinRL CryptoEnv.
+
+Supports two observation modes:
+- Close-price log-returns only (legacy, feature_dim=1)
+- Pre-computed multi-factor feature matrix (feature_dim >= 1)
+"""
 
 from __future__ import annotations
 
@@ -10,7 +15,7 @@ from gymnasium import spaces
 
 
 class CryptoSingleAssetEnv(gym.Env):
-    """One-asset spot simulator on close-price series."""
+    """One-asset spot simulator on close-price series with optional features."""
 
     metadata: dict[str, Any] = {"render_modes": []}
 
@@ -21,8 +26,9 @@ class CryptoSingleAssetEnv(gym.Env):
         initial_cash: float = 10_000.0,
         buy_cost_pct: float = 0.0008,
         sell_cost_pct: float = 0.0008,
-        buy_fraction: float = 0.25,
-        sell_fraction: float = 0.5,
+        buy_fraction: float = 1.0,
+        sell_fraction: float = 1.0,
+        features: np.ndarray | None = None,
     ) -> None:
         super().__init__()
         self.prices = np.asarray(prices, dtype=np.float64).reshape(-1)
@@ -35,8 +41,19 @@ class CryptoSingleAssetEnv(gym.Env):
         self.buy_fraction = float(buy_fraction)
         self.sell_fraction = float(sell_fraction)
 
+        if features is not None:
+            self.features = np.asarray(features, dtype=np.float64)
+            if self.features.shape[0] != self.prices.size:
+                raise ValueError(
+                    f"features rows ({self.features.shape[0]}) != prices length ({self.prices.size})"
+                )
+            self.feature_dim = self.features.shape[1]
+        else:
+            self.features = None
+            self.feature_dim = 1
+
         self.action_space = spaces.Discrete(3)
-        obs_dim = lookback + 2
+        obs_dim = lookback * self.feature_dim + 2
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
         )
@@ -49,18 +66,20 @@ class CryptoSingleAssetEnv(gym.Env):
         return self._cash + self._base * self.prices[t]
 
     def _obs(self, t: int) -> np.ndarray:
-        # lookback+1 closes -> lookback log-returns
-        window = self.prices[t - self.lookback : t + 1]
-        prev = window[:-1]
-        nxt = window[1:]
-        log_ret = np.log(nxt / np.clip(prev, 1e-12, None))
+        if self.features is not None:
+            seq = self.features[t - self.lookback : t]  # [lookback, F]
+        else:
+            window = self.prices[t - self.lookback : t + 1]
+            prev = window[:-1]
+            nxt = window[1:]
+            log_ret = np.log(nxt / np.clip(prev, 1e-12, None))
+            seq = log_ret.reshape(-1, 1)  # [lookback, 1]
+
         eq = max(self._equity(t), 1e-12)
         cash_ratio = np.array([self._cash / eq], dtype=np.float64)
         pos_value = self._base * self.prices[t]
         pos_ratio = np.array([pos_value / eq], dtype=np.float64)
-        return np.concatenate([log_ret.astype(np.float64), cash_ratio, pos_ratio]).astype(
-            np.float32
-        )
+        return np.concatenate([seq.flatten(), cash_ratio, pos_ratio]).astype(np.float32)
 
     def reset(
         self,
@@ -99,4 +118,3 @@ class CryptoSingleAssetEnv(gym.Env):
         reward = float((equity_after - equity_before) / max(equity_before, 1e-12))
         obs = self._obs(t2)
         return obs, reward, terminated, False, {}
-

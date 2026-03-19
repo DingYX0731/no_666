@@ -1,4 +1,9 @@
-"""Custom DRL network blocks: MLP + LSTM feature extractor for SB3."""
+"""Custom DRL network blocks: MLP + LSTM feature extractor for SB3.
+
+Supports variable feature_dim per timestep:
+- feature_dim=1: legacy mode (single log-return per step)
+- feature_dim>1: multi-factor mode (kline-derived features per step)
+"""
 
 from __future__ import annotations
 
@@ -26,6 +31,7 @@ class MlpLstmFeatureExtractor(BaseFeaturesExtractor):
         self,
         observation_space,
         sequence_len: int,
+        feature_dim: int = 1,
         lstm_hidden_size: int = 64,
         lstm_layers: int = 1,
         lstm_dropout: float = 0.0,
@@ -33,15 +39,20 @@ class MlpLstmFeatureExtractor(BaseFeaturesExtractor):
         account_mlp_hidden_dims: Sequence[int] = (16,),
         fusion_hidden_dims: Sequence[int] = (64,),
     ) -> None:
-        # Temporary placeholder; assigned actual value after modules are built.
         super().__init__(observation_space, features_dim=1)
         self.sequence_len = int(sequence_len)
-        self.account_dim = int(observation_space.shape[0] - self.sequence_len)
+        self.feature_dim = int(feature_dim)
+        self.seq_flat = self.sequence_len * self.feature_dim
+        total = int(observation_space.shape[0])
+        self.account_dim = total - self.seq_flat
         if self.account_dim <= 0:
-            raise ValueError("Invalid observation shape for sequence/account split.")
+            raise ValueError(
+                f"Invalid observation shape for sequence/account split: "
+                f"total={total}, seq_flat={self.seq_flat}"
+            )
 
         self.lstm = nn.LSTM(
-            input_size=1,
+            input_size=self.feature_dim,
             hidden_size=lstm_hidden_size,
             num_layers=lstm_layers,
             dropout=lstm_dropout if lstm_layers > 1 else 0.0,
@@ -77,9 +88,10 @@ class MlpLstmFeatureExtractor(BaseFeaturesExtractor):
         self._features_dim = fusion_in
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        seq = observations[:, : self.sequence_len].unsqueeze(-1)
-        acc = observations[:, self.sequence_len :]
+        seq_flat = observations[:, : self.seq_flat]
+        acc = observations[:, self.seq_flat :]
 
+        seq = seq_flat.view(-1, self.sequence_len, self.feature_dim)
         lstm_out, _ = self.lstm(seq)
         seq_last = lstm_out[:, -1, :]
         seq_feat = self.seq_mlp(seq_last)
@@ -87,4 +99,3 @@ class MlpLstmFeatureExtractor(BaseFeaturesExtractor):
 
         merged = torch.cat([seq_feat, acc_feat], dim=1)
         return self.fusion(merged)
-

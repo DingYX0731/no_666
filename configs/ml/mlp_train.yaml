@@ -8,13 +8,19 @@ data:
   limit: 0
   quote_asset: USDT
   cache_dir: data_cache/binance_public_data
+  use_agg_trades: false
+  use_trades: false
+  vol_window: 20
 
 features:
   lookback: 20
+  horizon: 1
+  label_mode: binary
   train_ratio: 0.8
+  split_method: chronological
 
 model:
-  hidden_dim: 16
+  hidden_dim: 64
 
 loss:
   name: bce
@@ -22,10 +28,9 @@ loss:
   eval_threshold: 0.5
 
 train:
-  lr: 0.01
-  epochs: 300
+  lr: 0.005
+  epochs: 500
   seed: 42
 
 out:
   ckpt_path: checkpoints/mlp/default.npz
-

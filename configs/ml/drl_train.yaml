@@ -8,14 +8,18 @@ data:
   limit: 0
   quote_asset: USDT
   cache_dir: data_cache/binance_public_data
+  use_agg_trades: false
+  use_trades: false
+  vol_window: 20
 
 env:
   lookback: 20
   initial_cash: 10000.0
   buy_cost_pct: 0.0008
   sell_cost_pct: 0.0008
-  buy_fraction: 0.25
-  sell_fraction: 0.5
+  # All-in buy/sell to match backtest engine behavior
+  buy_fraction: 1.0
+  sell_fraction: 1.0
 
 architecture:
   lstm_hidden_size: 64
@@ -28,17 +32,18 @@ architecture:
 
 ppo:
   learning_rate: 0.0003
-  n_steps: 2048
+  n_steps: 512
   batch_size: 64
   gamma: 0.99
   gae_lambda: 0.95
-  ent_coef: 0.0
+  ent_coef: 0.01
   clip_range: 0.2
 
 train:
-  timesteps: 50000
+  timesteps: 200000
   seed: 42
+  # auto = use CUDA if available; cuda = force GPU; cpu = force CPU
+  device: auto
 
 out:
   out_dir: checkpoints/drl
-

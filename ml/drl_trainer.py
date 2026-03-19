@@ -1,4 +1,8 @@
-"""DRL training pipeline (per-product PPO agent) within ml package."""
+"""DRL training pipeline (per-product PPO agent) within ml package.
+
+Uses the data.market_dataset feature pipeline so the DRL agent sees the
+same multi-factor features as the MLP model.
+"""
 
 from __future__ import annotations
 
@@ -6,43 +10,10 @@ from pathlib import Path
 
 import numpy as np
 
-from data.binance_public_data import KLINES_COLUMNS, BinancePublicDataClient
+from data.market_dataset import build_market_feature_dataset
 
 from .drl_env import CryptoSingleAssetEnv
 from .drl_utils import pair_to_slug, save_drl_meta
-
-
-def load_closes(
-    symbol: str,
-    interval: str,
-    frequency: str,
-    start_date: str,
-    end_date: str,
-    limit: int,
-    market: str,
-    quote_asset: str,
-    cache_dir: str,
-) -> np.ndarray:
-    """Load sorted close prices through BinancePublicDataClient."""
-    client = BinancePublicDataClient(cache_dir=cache_dir)
-    summary = client.fetch_history(
-        symbol=symbol,
-        dataset="klines",
-        interval=interval,
-        frequency=frequency,
-        start_date=start_date or None,
-        end_date=end_date or None,
-        limit=limit or None,
-        market=market,
-        quote_asset=quote_asset,
-        extract=True,
-        skip_missing=True,
-    )
-    if not summary.extracted_csv_files:
-        raise ValueError("No kline files for DRL training.")
-    rows = client.iter_csv_rows(summary.extracted_csv_files, columns=KLINES_COLUMNS)
-    rows.sort(key=lambda x: int(x["open_time"]))
-    return np.array([float(r["close"]) for r in rows], dtype=np.float64)
 
 
 def train_ppo_for_symbol(
@@ -56,11 +27,14 @@ def train_ppo_for_symbol(
     market: str,
     quote_asset: str,
     cache_dir: str,
+    use_agg_trades: bool,
+    use_trades: bool,
+    vol_window: int,
     lookback: int,
     timesteps: int,
     seed: int,
+    device: str,
     out_dir: str,
-    # PPO/env hyper-params
     learning_rate: float,
     n_steps: int,
     batch_size: int,
@@ -73,7 +47,6 @@ def train_ppo_for_symbol(
     buy_fraction: float,
     sell_fraction: float,
     initial_cash: float,
-    # Custom extractor hyper-params
     lstm_hidden_size: int,
     lstm_layers: int,
     lstm_dropout: float,
@@ -92,7 +65,7 @@ def train_ppo_for_symbol(
             "Install DRL deps: pip install -r requirements-drl.txt"
         ) from exc
 
-    closes = load_closes(
+    dataset = build_market_feature_dataset(
         symbol=symbol,
         interval=interval,
         frequency=frequency,
@@ -102,15 +75,24 @@ def train_ppo_for_symbol(
         market=market,
         quote_asset=quote_asset,
         cache_dir=cache_dir,
+        use_agg_trades=use_agg_trades,
+        use_trades=use_trades,
+        vol_window=vol_window,
     )
+    feature_dim = dataset.features.shape[1]
+    print(f"[drl] feature_dim={feature_dim}, features={dataset.feature_names}")
+    print(f"[drl] rows={dataset.features.shape[0]}, lookback={lookback}")
+    print(f"[drl] device={device}")
+
     env = CryptoSingleAssetEnv(
-        prices=closes,
+        prices=dataset.closes,
         lookback=lookback,
         initial_cash=initial_cash,
         buy_cost_pct=buy_cost_pct,
         sell_cost_pct=sell_cost_pct,
         buy_fraction=buy_fraction,
         sell_fraction=sell_fraction,
+        features=dataset.features,
     )
 
     seq_dims = parse_hidden_dims(seq_mlp_hidden_dims, [64])
@@ -122,6 +104,7 @@ def train_ppo_for_symbol(
         features_extractor_class=MlpLstmFeatureExtractor,
         features_extractor_kwargs=dict(
             sequence_len=lookback,
+            feature_dim=feature_dim,
             lstm_hidden_size=lstm_hidden_size,
             lstm_layers=lstm_layers,
             lstm_dropout=lstm_dropout,
@@ -137,6 +120,7 @@ def train_ppo_for_symbol(
         env,
         verbose=1,
         seed=seed,
+        device=device,
         learning_rate=learning_rate,
         n_steps=n_steps,
         batch_size=batch_size,
@@ -158,7 +142,9 @@ def train_ppo_for_symbol(
         {
             "pair": symbol.strip().upper(),
             "lookback": lookback,
-            "obs_dim": lookback + 2,
+            "feature_dim": feature_dim,
+            "feature_names": dataset.feature_names,
+            "obs_dim": lookback * feature_dim + 2,
             "algorithm": "PPO",
             "policy": "MlpPolicy",
             "model_path": str(model_path.name),
@@ -171,8 +157,12 @@ def train_ppo_for_symbol(
             "buy_fraction": buy_fraction,
             "sell_fraction": sell_fraction,
             "initial_cash": initial_cash,
+            "use_agg_trades": use_agg_trades,
+            "use_trades": use_trades,
+            "vol_window": vol_window,
             "extractor": {
                 "name": "MlpLstmFeatureExtractor",
+                "feature_dim": feature_dim,
                 "lstm_hidden_size": lstm_hidden_size,
                 "lstm_layers": lstm_layers,
                 "lstm_dropout": lstm_dropout,
@@ -190,8 +180,8 @@ def train_ppo_for_symbol(
                 "ent_coef": ent_coef,
                 "clip_range": clip_range,
                 "seed": seed,
+                "device": device,
             },
         },
     )
     return model_path, meta_path
-

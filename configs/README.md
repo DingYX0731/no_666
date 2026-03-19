@@ -13,6 +13,16 @@ Examples:
 - `configs/ml/mlp_train.yaml`
 - `configs/ml/drl_train.yaml`
 
+`mlp_train.yaml` supports data-pipeline controls such as:
+
+- `data.use_agg_trades`
+- `data.use_trades`
+- `data.vol_window`
+- `features.lookback`
+- `features.horizon`
+- `features.label_mode`
+- `features.split_method`
+
 ## Strategy Configs
 
 Path convention:

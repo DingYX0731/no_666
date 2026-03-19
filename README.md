@@ -115,6 +115,8 @@ python run_backtest.py --data-source binance --symbol BTC/USD --interval 1h \
 python run_backtest.py --data-source csv --csv data.csv --price-col close --strategy ma
 ```
 
+Results (Start Equity, End Equity, Return, Max Drawdown, Trades) are printed to stdout. See `docs/BACKTEST.md` for field meanings and how to save output.
+
 ## Model Training
 
 ### MLP
@@ -124,6 +126,15 @@ python run_train_mlp.py --config configs/ml/mlp_train.yaml
 ```
 
 Produces `checkpoints/mlp/*.npz` containing weights and normalization stats.
+Training logs: `logs/training/YYYYMMDD/mlp_<HHMMSS>/train.log`.
+The training pipeline now uses `data/market_dataset.py` to:
+
+- align `klines`, `aggTrades`, and `trades` to the kline timeframe
+- build multi-factor feature vectors (price, volatility, volume, flow, microstructure)
+- construct many supervised `(X, y)` sample pairs with configurable `lookback` and `horizon`
+- split into train/test sets via chronological or random policy
+
+For detailed feature dimensions and alignment rules, see `data/README.md`.
 
 ### DRL (PPO)
 
@@ -143,6 +154,8 @@ Produces per-pair artifacts under `checkpoints/drl/`:
 
 - `<PAIR>_ppo.zip` (SB3 model)
 - `<PAIR>_meta.json` (architecture and training metadata)
+
+Training logs: `logs/training/YYYYMMDD/drl_<HHMMSS>/train.log`.
 
 The DRL feature extractor uses a configurable MLP+LSTM architecture. All hyperparameters (LSTM size, layer count, MLP dimensions, PPO settings) are managed in `configs/ml/drl_train.yaml`.
 

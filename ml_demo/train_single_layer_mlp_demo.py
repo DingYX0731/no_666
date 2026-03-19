@@ -3,56 +3,50 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
-
-import numpy as np
+from pathlib import Path
 
 # Allow running this file directly.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from data.binance_public_data import KLINES_COLUMNS, BinancePublicDataClient
+from data.market_dataset import (
+    build_market_feature_dataset,
+    build_supervised_pairs,
+    split_supervised_pairs,
+)
 from ml.config_loader import get_block, load_yaml_config
-from ml.features import build_supervised_dataset, split_train_test
 from ml.trainer import MLPTrainer, TrainerConfig
+from trade.logging_utils import setup_training_logger
 
 
-def load_close_prices(
-    symbol: str,
-    interval: str,
-    frequency: str,
-    start_date: str,
-    end_date: str,
-    limit: int,
-    market: str,
-    quote_asset: str,
-    cache_dir: str,
-) -> np.ndarray:
-    """Load sorted close prices from Binance archives."""
-    client = BinancePublicDataClient(cache_dir=cache_dir)
-    summary = client.fetch_history(
-        symbol=symbol,
-        dataset="klines",
-        interval=interval,
-        frequency=frequency,
-        start_date=start_date or None,
-        end_date=end_date or None,
-        limit=limit or None,
-        market=market,
-        quote_asset=quote_asset,
-        extract=True,
-        skip_missing=True,
-    )
-    if not summary.extracted_csv_files:
-        raise ValueError("No kline files found for training.")
-    rows = client.iter_csv_rows(summary.extracted_csv_files, columns=KLINES_COLUMNS)
-    rows.sort(key=lambda x: int(x["open_time"]))
-    closes = np.array([float(r["close"]) for r in rows], dtype=np.float64)
-    if closes.size < 50:
-        raise ValueError("Too few data points; increase date range.")
-    return closes
+class _Tee:
+    """Write to multiple streams."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+            s.flush()
+
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+
+
+def _as_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in {"1", "true", "yes", "y", "on"}:
+            return True
+        if v in {"0", "false", "no", "n", "off"}:
+            return False
+    return default
 
 
 def main() -> None:
@@ -61,6 +55,21 @@ def main() -> None:
     parser.add_argument("--config", type=str, default="configs/ml/mlp_train.yaml")
     args = parser.parse_args()
 
+    logger, log_path = setup_training_logger(run_prefix="mlp")
+    logger.info("Log file: %s", log_path)
+    logger.info("Config: %s", args.config)
+
+    log_file = log_path.open("a", encoding="utf-8")
+    old_stdout = sys.stdout
+    sys.stdout = _Tee(old_stdout, log_file)
+    try:
+        _run_training(args, logger, log_path)
+    finally:
+        sys.stdout = old_stdout
+        log_file.close()
+
+
+def _run_training(args, logger, log_path) -> None:
     cfg = load_yaml_config(args.config)
     data_cfg = get_block(cfg, "data")
     feat_cfg = get_block(cfg, "features")
@@ -78,9 +87,15 @@ def main() -> None:
     limit = int(data_cfg.get("limit", 0))
     quote_asset = str(data_cfg.get("quote_asset", "USDT"))
     cache_dir = str(data_cfg.get("cache_dir", "data_cache/binance_public_data"))
+    use_agg_trades = _as_bool(data_cfg.get("use_agg_trades", True), True)
+    use_trades = _as_bool(data_cfg.get("use_trades", True), True)
+    vol_window = int(data_cfg.get("vol_window", 20))
 
     lookback = int(feat_cfg.get("lookback", 20))
+    horizon = int(feat_cfg.get("horizon", 1))
+    label_mode = str(feat_cfg.get("label_mode", "binary")).lower()
     train_ratio = float(feat_cfg.get("train_ratio", 0.8))
+    split_method = str(feat_cfg.get("split_method", "chronological")).lower()
 
     hidden_dim = int(model_cfg.get("hidden_dim", 16))
     lr = float(train_cfg.get("lr", 0.01))
@@ -91,7 +106,7 @@ def main() -> None:
     eval_threshold = float(loss_cfg.get("eval_threshold", 0.5))
     ckpt_path = str(out_cfg.get("ckpt_path", "checkpoints/mlp/single_layer_mlp.npz"))
 
-    closes = load_close_prices(
+    dataset = build_market_feature_dataset(
         symbol=symbol,
         interval=interval,
         frequency=frequency,
@@ -101,10 +116,26 @@ def main() -> None:
         market=market,
         quote_asset=quote_asset,
         cache_dir=cache_dir,
+        use_agg_trades=use_agg_trades,
+        use_trades=use_trades,
+        vol_window=vol_window,
     )
 
-    x, y = build_supervised_dataset(closes, lookback=lookback)
-    train_x, train_y, test_x, test_y = split_train_test(x, y, train_ratio=train_ratio)
+    pairs = build_supervised_pairs(
+        dataset,
+        lookback=lookback,
+        horizon=horizon,
+        label_mode="binary" if label_mode not in {"binary", "regression"} else label_mode,
+    )
+    train_x, train_y, test_x, test_y = split_supervised_pairs(
+        pairs,
+        train_ratio=train_ratio,
+        method="random" if split_method == "random" else "chronological",
+        seed=seed,
+    )
+    # MLP expects 2D vectors; flatten [lookback, feature_dim] windows.
+    train_x = train_x.reshape(train_x.shape[0], -1)
+    test_x = test_x.reshape(test_x.shape[0], -1)
 
     trainer = MLPTrainer(
         TrainerConfig(
@@ -123,8 +154,12 @@ def main() -> None:
     print("=== Single-Layer MLP Training ===")
     print(f"Config     : {args.config}")
     print(f"Checkpoint : {ckpt_path}")
+    print(f"Features   : {','.join(dataset.feature_names)}")
+    print(f"InputShape : [{pairs.lookback}, {dataset.features.shape[1]}] -> flattened")
+    print(f"LabelMode  : {pairs.label_mode} (horizon={pairs.horizon})")
+    print(f"Split      : {split_method} (train_ratio={train_ratio})")
     print(f"Samples    : {report.samples}")
-    print(f"Features   : {report.features}")
+    print(f"FlatDim    : {report.features}")
     print(f"TrainLoss  : {report.train_loss:.6f}")
     print(f"TrainAcc   : {report.train_acc:.4f}")
     print(f"TestLoss   : {report.test_loss:.6f}")

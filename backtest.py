@@ -5,7 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Sequence
 
+import numpy as np
+
 from data.binance_public_data import KLINES_COLUMNS, BinancePublicDataClient
+from data.market_dataset import build_market_feature_dataset
 from strategy import BaseStrategy, build_strategy
 
 
@@ -89,21 +92,31 @@ def run_backtest(
     strategy: BaseStrategy,
     fee_rate: float = 0.0008,
     initial_quote: float = 10000.0,
+    features: np.ndarray | None = None,
 ) -> BacktestResult:
-    """Run backtest with any strategy implementing BaseStrategy."""
+    """Run backtest with any strategy implementing BaseStrategy.
+
+    When ``features`` is provided (shape [N, F]), it is passed to the
+    strategy at each step via ``kwargs['features']`` and ``kwargs['step']``.
+    This allows DRL / ML strategies to use multi-factor observations.
+    """
     quote = initial_quote
     base = 0.0
     trades = 0
     equity_curve: List[float] = []
 
     history: List[float] = []
-    for price in prices:
+    for i, price in enumerate(prices):
         history.append(price)
+        extra_kwargs: dict = {"quote_free": quote, "last_price": price}
+        if features is not None:
+            extra_kwargs["features"] = features
+            extra_kwargs["step"] = i
+
         signal = strategy.generate_signal(
             history,
             base,
-            quote_free=quote,
-            last_price=price,
+            **extra_kwargs,
         )
 
         if signal == "BUY" and quote > 0:
@@ -165,12 +178,13 @@ def main() -> None:
     parser.add_argument("--strategy-config", type=str, default="", help="Strategy yaml path")
     args = parser.parse_args()
 
+    features = None
     if args.data_source == "csv":
         if not args.csv:
             raise ValueError("--csv is required when --data-source=csv")
         prices = read_prices_from_csv(Path(args.csv), args.price_col)
     elif args.data_source == "binance":
-        prices = read_prices_from_binance(
+        dataset = build_market_feature_dataset(
             symbol=args.symbol,
             interval=args.interval,
             frequency=args.frequency,
@@ -180,7 +194,11 @@ def main() -> None:
             market=args.market,
             quote_asset=args.quote_asset,
             cache_dir=args.cache_dir,
+            use_agg_trades=False,
+            use_trades=False,
         )
+        prices = dataset.closes.tolist()
+        features = dataset.features
     else:
         prices = synthetic_prices(500)
 
@@ -190,7 +208,7 @@ def main() -> None:
         strategy_config=args.strategy_config,
         pair=pair_label,
     )
-    result = run_backtest(prices=prices, strategy=strategy)
+    result = run_backtest(prices=prices, strategy=strategy, features=features)
 
     print("=== Backtest Result ===")
     print(f"Strategy     : {strategy.name}")
