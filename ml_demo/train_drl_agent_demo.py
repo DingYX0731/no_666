@@ -76,6 +76,7 @@ def _run_training(args, logger, log_path) -> None:
     cfg = load_yaml_config(args.config)
     data_cfg = get_block(cfg, "data")
     env_cfg = get_block(cfg, "env")
+    val_cfg = get_block(cfg, "validation")
     train_cfg = get_block(cfg, "train")
     ppo_cfg = get_block(cfg, "ppo")
     arch_cfg = get_block(cfg, "architecture")
@@ -111,6 +112,11 @@ def _run_training(args, logger, log_path) -> None:
         buy_fraction=float(env_cfg.get("buy_fraction", 1.0)),
         sell_fraction=float(env_cfg.get("sell_fraction", 1.0)),
         initial_cash=float(env_cfg.get("initial_cash", 10_000.0)),
+        holding_penalty_per_step=float(env_cfg.get("holding_penalty_per_step", 0.0)),
+        holding_penalty_growth=float(env_cfg.get("holding_penalty_growth", 0.0)),
+        sell_execution_bonus=float(env_cfg.get("sell_execution_bonus", 0.0)),
+        invalid_action_penalty=float(env_cfg.get("invalid_action_penalty", 0.0)),
+        realized_pnl_reward_scale=float(env_cfg.get("realized_pnl_reward_scale", 0.0)),
         lstm_hidden_size=int(arch_cfg.get("lstm_hidden_size", 64)),
         lstm_layers=int(arch_cfg.get("lstm_layers", 1)),
         lstm_dropout=float(arch_cfg.get("lstm_dropout", 0.0)),
@@ -118,6 +124,19 @@ def _run_training(args, logger, log_path) -> None:
         account_mlp_hidden_dims=str(arch_cfg.get("account_mlp_hidden_dims", "16")),
         fusion_hidden_dims=str(arch_cfg.get("fusion_hidden_dims", "64")),
         policy_hidden_dims=str(arch_cfg.get("policy_hidden_dims", "64,64")),
+        validation_enabled=bool(val_cfg.get("enabled", False)),
+        validation_eval_every_steps=int(val_cfg.get("eval_every_steps", 0)),
+        validation_eval_episodes=int(val_cfg.get("eval_episodes", 1)),
+        validation_window_start=float(val_cfg.get("window_start", 0.8)),
+        validation_window_end=float(val_cfg.get("window_end", 0.9)),
+        validation_save_best_by=str(val_cfg.get("save_best_by", "return_pct")),
+        validation_early_stop_patience_evals=int(
+            val_cfg.get("early_stop_patience_evals", 5)
+        ),
+        validation_store_best_on_validation_step=bool(
+            val_cfg.get("store_best_on_validation_step", True)
+        ),
+        validation_log_dir=str(log_path.parent),
     )
     print(f"Config     : {args.config}")
     print(f"Saved model: {model_path}")

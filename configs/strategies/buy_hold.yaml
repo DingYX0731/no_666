@@ -1,0 +1,16 @@
+strategy: buy_hold
+params:
+  # mode:
+  # - single: only allow the first pair to BUY, afterwards all pairs HOLD
+  # - all: each pair BUY once (then HOLD)
+  mode: all
+
+  # dust means "buy a small amount near min_notional" instead of max_position_usd.
+  use_dust: true
+  buy_once_per_pair: true
+
+  # How much quote to keep unspent after dust sizing.
+  cash_reserve_ratio: 0.7
+
+  # target_notional = min_notional_usd * dust_multiplier
+  dust_multiplier: 1.1

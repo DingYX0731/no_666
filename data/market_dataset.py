@@ -5,11 +5,16 @@ Supported raw sources:
 - klines (OHLCV + taker fields)
 - aggTrades (aggregated trades)  -- streamed and bucketed to avoid OOM
 - trades (raw trades)            -- streamed and bucketed to avoid OOM
+
+Processed datasets are cached under data_cache/processed/ to avoid repeated
+loading when the same params are used (e.g. backtest then training).
 """
 
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -22,6 +27,11 @@ from data.binance_public_data import (
     TRADES_COLUMNS,
     BinancePublicDataClient,
 )
+
+
+def _log(msg: str, verbose: bool = True) -> None:
+    if verbose:
+        print(f"[data] {msg}", flush=True)
 
 
 @dataclass
@@ -74,36 +84,6 @@ def _bucket_start(ts_ms: int, interval_ms: int) -> int:
     return (ts_ms // interval_ms) * interval_ms
 
 
-def _fetch_kline_rows(
-    client: BinancePublicDataClient,
-    *,
-    symbol: str,
-    interval: str,
-    frequency: str,
-    start_date: str,
-    end_date: str,
-    limit: int,
-    market: str,
-    quote_asset: str,
-) -> list[dict]:
-    summary = client.fetch_history(
-        symbol=symbol,
-        dataset="klines",
-        interval=interval,
-        frequency=frequency,
-        start_date=start_date or None,
-        end_date=end_date or None,
-        limit=limit or None,
-        market=market,
-        quote_asset=quote_asset,
-        extract=True,
-        skip_missing=True,
-    )
-    if not summary.extracted_csv_files:
-        return []
-    return client.iter_csv_rows(summary.extracted_csv_files, columns=KLINES_COLUMNS)
-
-
 def _stream_aggregate_buckets(
     client: BinancePublicDataClient,
     *,
@@ -154,8 +134,11 @@ def _stream_aggregate_buckets(
         maker_col_idx = columns.index("is_buyer_maker")
 
     buckets: dict[int, dict[str, float]] = {}
+    n_files = len(summary.extracted_csv_files)
 
-    for csv_path in summary.extracted_csv_files:
+    for fi, csv_path in enumerate(summary.extracted_csv_files):
+        if fi > 0 and fi % 10 == 0:
+            print(f"[data]   {dataset}: {fi}/{n_files} files ...", flush=True)
         with Path(csv_path).open("r", encoding="utf-8") as f:
             reader = csv.reader(f)
             for row in reader:
@@ -221,6 +204,64 @@ _TRADE_FEATURE_NAMES = [
 _EMPTY_BUCKET = {"count": 0.0, "qty_sum": 0.0, "quote_sum": 0.0, "maker_sum": 0.0}
 
 
+def _cache_key(
+    symbol: str,
+    interval: str,
+    frequency: str,
+    start_date: str,
+    end_date: str,
+    limit: int,
+    market: str,
+    quote_asset: str,
+    use_agg_trades: bool,
+    use_trades: bool,
+    vol_window: int,
+) -> str:
+    key = json.dumps(
+        {
+            "symbol": symbol,
+            "interval": interval,
+            "frequency": frequency,
+            "start_date": start_date,
+            "end_date": end_date,
+            "limit": limit,
+            "market": market,
+            "quote_asset": quote_asset,
+            "use_agg_trades": use_agg_trades,
+            "use_trades": use_trades,
+            "vol_window": vol_window,
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def _load_from_cache(cache_path: Path, verbose: bool) -> MarketFeatureDataset | None:
+    if not cache_path.exists():
+        return None
+    try:
+        data = np.load(cache_path, allow_pickle=True)
+        return MarketFeatureDataset(
+            open_times=data["open_times"],
+            closes=data["closes"],
+            features=data["features"],
+            feature_names=list(data["feature_names"]),
+        )
+    except Exception:
+        return None
+
+
+def _save_to_cache(dataset: MarketFeatureDataset, cache_path: Path, verbose: bool) -> None:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        cache_path,
+        open_times=dataset.open_times,
+        closes=dataset.closes,
+        features=dataset.features,
+        feature_names=np.array(dataset.feature_names, dtype=object),
+    )
+
+
 def build_market_feature_dataset(
     *,
     symbol: str,
@@ -232,37 +273,63 @@ def build_market_feature_dataset(
     market: str = "spot",
     quote_asset: str = "USDT",
     cache_dir: str = "data_cache/binance_public_data",
+    processed_cache_dir: str = "data_cache/processed",
     use_agg_trades: bool = False,
     use_trades: bool = False,
     vol_window: int = 20,
+    use_cache: bool = True,
+    verbose: bool = True,
 ) -> MarketFeatureDataset:
     """Build aligned feature dataset from Binance raw archives.
 
     When use_agg_trades / use_trades are False (default), only kline-derived
     features are produced (9 dimensions). This is memory-safe and fast.
     Enabling tick-level data uses streaming aggregation to avoid OOM.
+
+    Processed datasets are cached under processed_cache_dir when use_cache=True.
     """
+    if use_cache:
+        key = _cache_key(
+            symbol, interval, frequency, start_date, end_date, limit,
+            market, quote_asset, use_agg_trades, use_trades, vol_window,
+        )
+        cache_path = Path(processed_cache_dir) / f"{key}.npz"
+        cached = _load_from_cache(cache_path, verbose)
+        if cached is not None:
+            _log(f"Loaded from cache: {cache_path} ({cached.features.shape[0]} rows, {cached.features.shape[1]} features)", verbose)
+            return cached
+
+    _log(f"Fetching klines for {symbol} {interval} ({start_date}..{end_date}) ...", verbose)
     client = BinancePublicDataClient(cache_dir=cache_dir)
     interval_ms = _interval_to_ms(interval)
 
-    kline_rows = _fetch_kline_rows(
-        client,
+    summary = client.fetch_history(
         symbol=symbol,
+        dataset="klines",
         interval=interval,
         frequency=frequency,
-        start_date=start_date,
-        end_date=end_date,
-        limit=limit,
+        start_date=start_date or None,
+        end_date=end_date or None,
+        limit=limit or None,
         market=market,
         quote_asset=quote_asset,
+        extract=True,
+        skip_missing=True,
     )
+    if not summary.extracted_csv_files:
+        raise ValueError("No kline rows loaded for feature dataset.")
+    _log(f"Klines: {len(summary.extracted_csv_files)} files (cached: {summary.cache_hits}, downloaded: {summary.downloaded})", verbose)
+
+    kline_rows = client.iter_csv_rows(summary.extracted_csv_files, columns=KLINES_COLUMNS)
     if not kline_rows:
         raise ValueError("No kline rows loaded for feature dataset.")
     kline_rows.sort(key=lambda r: int(r["open_time"]))
+    _log(f"Parsed {len(kline_rows)} kline rows", verbose)
 
+    _log("Building features ...", verbose)
     agg_bucket: dict[int, dict[str, float]] = {}
     if use_agg_trades:
-        print("[data] Streaming aggTrades into time buckets ...")
+        _log("Streaming aggTrades into time buckets ...", verbose)
         agg_bucket = _stream_aggregate_buckets(
             client,
             symbol=symbol,
@@ -275,11 +342,11 @@ def build_market_feature_dataset(
             quote_asset=quote_asset,
             interval_ms=interval_ms,
         )
-        print(f"[data] aggTrades: {len(agg_bucket)} buckets aggregated")
+        _log(f"aggTrades: {len(agg_bucket)} buckets aggregated", verbose)
 
     trade_bucket: dict[int, dict[str, float]] = {}
     if use_trades:
-        print("[data] Streaming trades into time buckets ...")
+        _log("Streaming trades into time buckets ...", verbose)
         trade_bucket = _stream_aggregate_buckets(
             client,
             symbol=symbol,
@@ -292,7 +359,7 @@ def build_market_feature_dataset(
             quote_asset=quote_asset,
             interval_ms=interval_ms,
         )
-        print(f"[data] trades: {len(trade_bucket)} buckets aggregated")
+        _log(f"trades: {len(trade_bucket)} buckets aggregated", verbose)
 
     open_times: list[int] = []
     closes: list[float] = []
@@ -367,12 +434,24 @@ def build_market_feature_dataset(
     if use_trades:
         feature_names.extend(_TRADE_FEATURE_NAMES)
 
-    return MarketFeatureDataset(
+    dataset = MarketFeatureDataset(
         open_times=np.asarray(open_times, dtype=np.int64),
         closes=np.asarray(closes, dtype=np.float64),
         features=np.asarray(base_features, dtype=np.float64),
         feature_names=feature_names,
     )
+    _log(f"Done: {dataset.features.shape[0]} rows, {dataset.features.shape[1]} features", verbose)
+
+    if use_cache:
+        key = _cache_key(
+            symbol, interval, frequency, start_date, end_date, limit,
+            market, quote_asset, use_agg_trades, use_trades, vol_window,
+        )
+        cache_path = Path(processed_cache_dir) / f"{key}.npz"
+        _save_to_cache(dataset, cache_path, verbose)
+        _log(f"Saved to cache: {cache_path}", verbose)
+
+    return dataset
 
 
 def build_supervised_pairs(

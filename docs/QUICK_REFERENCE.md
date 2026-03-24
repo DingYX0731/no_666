@@ -47,13 +47,63 @@ python run_trader.py --symbols BTC/USD --strategy mlp
 python run_trader.py --symbols all --strategy ma
 ```
 
+Buy and hold (first tick all-in BUY, then HOLD):
+
+```bash
+python run_trader.py --symbols BTC/USD,ETH/USD --strategy buy_hold --strategy-config configs/strategies/buy_hold.yaml --poll-seconds 5
+```
+
+Rule-based mean reversion (Bollinger + RSI + trend filter; config: `configs/strategies/bb_rsi.yaml`):
+
+```bash
+python run_trader.py --symbols BTC/USD,ETH/USD --strategy bb_rsi --poll-seconds 5
+DRY_RUN=false python run_trader.py --symbols BTC/USD,ETH/USD --strategy bb_rsi --poll-seconds 5
+```
+
 ## Backtest
 
 ```bash
-python run_backtest.py --data-source synthetic --strategy ma
-python run_backtest.py --data-source csv --csv your_data.csv --price-col close
-python run_backtest.py --data-source binance --symbol BTC/USD --interval 1h --frequency daily --start-date 2024-01-01 --end-date 2024-01-05 --strategy mlp
+python run_backtest.py --data-source synthetic --strategy ma --strategy-config configs/strategies/ma.yaml --save-artifacts
+python run_backtest.py --data-source csv --csv your_data.csv --price-col close --strategy ma --strategy-config configs/strategies/ma.yaml --save-artifacts
+python run_backtest.py \
+  --data-source binance \
+  --symbol BTC/USD \
+  --interval 1h \
+  --frequency daily \
+  --market spot \
+  --quote-asset USDT \
+  --start-date 2024-01-01 \
+  --end-date 2024-01-05 \
+  --strategy mlp \
+  --strategy-config configs/strategies/mlp.yaml \
+  --save-artifacts
 ```
+
+`buy_hold` (buy once with all quote, then HOLD; end equity = MTM at last bar):
+
+```bash
+python run_backtest.py --data-source synthetic --strategy buy_hold --strategy-config configs/strategies/buy_hold.yaml --save-artifacts
+```
+
+`bb_rsi` (Bollinger Band + RSI mean reversion, no ML):
+
+```bash
+python run_backtest.py --data-source synthetic --strategy bb_rsi --strategy-config configs/strategies/bb_rsi.yaml --save-artifacts
+python run_backtest.py \
+  --data-source binance \
+  --symbol BTC/USDT \
+  --interval 1m \
+  --frequency daily \
+  --market spot \
+  --quote-asset USDT \
+  --start-date 2024-03-01 \
+  --end-date 2024-03-15 \
+  --strategy bb_rsi \
+  --strategy-config configs/strategies/bb_rsi.yaml \
+  --save-artifacts
+```
+
+Artifacts: `logs/backtest/YYYYMMDD/<run>/steps.csv` + `backtest_chart.png`. See `docs/BACKTEST.md`.
 
 ## Data + Training
 

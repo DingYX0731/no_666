@@ -1,0 +1,14 @@
+strategy: bb_rsi
+params:
+  bb_window: 20
+  bb_std: 2.0
+  rsi_window: 14
+  rsi_buy_threshold: 35
+  rsi_sell_threshold: 65
+  rsi_extreme_buy: 25
+  rsi_extreme_sell: 75
+  trend_window: 50
+  use_trend_filter: true
+  stop_loss_pct: 0.03
+  trailing_stop: true
+  cooldown_steps: 3

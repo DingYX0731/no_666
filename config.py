@@ -17,7 +17,8 @@ class Settings:
     base_url: str
     api_key: str
     api_secret: str
-    poll_seconds: int
+    poll_seconds_accumulate: int
+    poll_seconds_hold: int
     short_window: int
     long_window: int
     max_position_usd: float
@@ -34,11 +35,17 @@ class Settings:
         api_key = os.getenv("ROOSTOO_API_KEY", "")
         api_secret = os.getenv("ROOSTOO_API_SECRET", "")
 
+        base_poll = int(os.getenv("POLL_SECONDS", "5"))
+        poll_seconds_accumulate = int(os.getenv("POLL_SECONDS_ACCUMULATE", str(base_poll)))
+        poll_seconds_hold_default = max(30, base_poll * 6)
+        poll_seconds_hold = int(os.getenv("POLL_SECONDS_HOLD", str(poll_seconds_hold_default)))
+
         settings = cls(
             base_url=base_url,
             api_key=api_key,
             api_secret=api_secret,
-            poll_seconds=int(os.getenv("POLL_SECONDS", "5")),
+            poll_seconds_accumulate=poll_seconds_accumulate,
+            poll_seconds_hold=poll_seconds_hold,
             short_window=int(os.getenv("SHORT_WINDOW", "5")),
             long_window=int(os.getenv("LONG_WINDOW", "20")),
             max_position_usd=float(os.getenv("MAX_POSITION_USD", "1000")),
@@ -56,5 +63,7 @@ class Settings:
             raise ValueError("Missing ROOSTOO_API_KEY or ROOSTOO_API_SECRET in environment.")
         if self.short_window <= 0 or self.long_window <= 0:
             raise ValueError("SHORT_WINDOW and LONG_WINDOW must be positive.")
-        if self.poll_seconds <= 0:
-            raise ValueError("POLL_SECONDS must be positive.")
+        if self.poll_seconds_accumulate <= 0:
+            raise ValueError("POLL_SECONDS_ACCUMULATE must be positive.")
+        if self.poll_seconds_hold <= 0:
+            raise ValueError("POLL_SECONDS_HOLD must be positive.")

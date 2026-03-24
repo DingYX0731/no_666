@@ -7,6 +7,7 @@ Supports both:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -110,6 +111,60 @@ class DRLSb3Strategy(BaseStrategy):
         )
         return np.concatenate([log_ret, cash_ratio, pos_ratio]).astype(np.float32)
 
+    def _build_obs(
+        self,
+        prices: Sequence[float],
+        position_coin: float,
+        quote_free: float,
+        last_price: float,
+        **kwargs: Any,
+    ) -> np.ndarray | None:
+        if len(prices) < self.required_prices or last_price <= 0:
+            return None
+        features = kwargs.get("features")
+        step = kwargs.get("step")
+        if self.feature_dim > 1 and features is not None and step is not None:
+            return self._build_obs_from_features(
+                features, int(step), position_coin, quote_free, last_price
+            )
+        if self.feature_dim > 1:
+            import warnings
+
+            warnings.warn(
+                f"DRL model expects feature_dim={self.feature_dim} but no features provided. "
+                "Use --data-source binance for backtest, or retrain with feature_dim=1. Returning HOLD.",
+                UserWarning,
+                stacklevel=1,
+            )
+            return None
+        return self._build_obs_from_prices(prices, position_coin, quote_free, last_price)
+
+    def _policy_obs_probs_action(
+        self,
+        prices: Sequence[float],
+        position_coin: float,
+        **kwargs: Any,
+    ) -> tuple[np.ndarray | None, np.ndarray | None, int | None]:
+        """Observation, action probabilities [HOLD,BUY,SELL], raw discrete action."""
+        quote_free = float(kwargs.get("quote_free", 0.0))
+        last_price = float(kwargs.get("last_price", 0.0))
+        # Do not forward quote_free / last_price in **kwargs — _build_obs takes them positionally.
+        rest = {k: v for k, v in kwargs.items() if k not in ("quote_free", "last_price")}
+        obs = self._build_obs(prices, position_coin, quote_free, last_price, **rest)
+        if obs is None:
+            return None, None, None
+        import torch
+
+        obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self._model.device).unsqueeze(0)
+        with torch.no_grad():
+            dist = self._model.policy.get_distribution(obs_t)
+            probs_t = dist.distribution.probs.float().squeeze(0).cpu().numpy()
+            if self.deterministic:
+                a = int(np.argmax(probs_t))
+            else:
+                a = int(dist.sample().item())
+        return obs, probs_t.reshape(-1), a
+
     def generate_signal(
         self,
         prices: Sequence[float],
@@ -117,34 +172,55 @@ class DRLSb3Strategy(BaseStrategy):
         **kwargs: Any,
     ) -> str:
         quote_free = float(kwargs.get("quote_free", 0.0))
-        last_price = float(kwargs.get("last_price", 0.0))
-        if len(prices) < self.required_prices or last_price <= 0:
+        obs, _probs, a = self._policy_obs_probs_action(prices, position_coin, **kwargs)
+        if obs is None:
             return "HOLD"
-
-        features = kwargs.get("features")
-        step = kwargs.get("step")
-        if self.feature_dim > 1 and features is not None and step is not None:
-            obs = self._build_obs_from_features(
-                features, int(step), position_coin, quote_free, last_price
-            )
-        else:
-            if self.feature_dim > 1:
-                import warnings
-
-                warnings.warn(
-                    f"DRL model expects feature_dim={self.feature_dim} but no features provided. "
-                    "Use --data-source binance for backtest, or retrain with feature_dim=1. Returning HOLD.",
-                    UserWarning,
-                    stacklevel=1,
-                )
-                return "HOLD"
-            obs = self._build_obs_from_prices(prices, position_coin, quote_free, last_price)
-
-        action, _ = self._model.predict(obs, deterministic=self.deterministic)
-        a = int(action.item()) if isinstance(action, np.ndarray) else int(action)
 
         if a == 1 and position_coin <= 0 and quote_free > 0:
             return "BUY"
         if a == 2 and position_coin > 0:
             return "SELL"
         return "HOLD"
+
+    def evaluate_step(
+        self,
+        prices: Sequence[float],
+        position_coin: float,
+        **kwargs: Any,
+    ) -> tuple[str, dict[str, Any]]:
+        quote_free = float(kwargs.get("quote_free", 0.0))
+        obs, probs, a = self._policy_obs_probs_action(prices, position_coin, **kwargs)
+        if obs is None or probs is None:
+            return "HOLD", {
+                "conf_hold": float("nan"),
+                "conf_buy": float("nan"),
+                "conf_sell": float("nan"),
+                "input_summary": "{}",
+            }
+
+        ph, pb, ps = float(probs[0]), float(probs[1]), float(probs[2])
+        signal = "HOLD"
+        if a == 1 and position_coin <= 0 and quote_free > 0:
+            signal = "BUY"
+        elif a == 2 and position_coin > 0:
+            signal = "SELL"
+
+        flat = obs.reshape(-1)
+        summary = json.dumps(
+            {
+                "raw_action": a,
+                "obs_dim": int(flat.size),
+                "obs_head": [round(float(x), 6) for x in flat[:16]],
+                "obs_tail": [round(float(x), 6) for x in flat[-8:]] if flat.size > 16 else [],
+                "policy_prob_hold": round(ph, 6),
+                "policy_prob_buy": round(pb, 6),
+                "policy_prob_sell": round(ps, 6),
+            },
+            separators=(",", ":"),
+        )
+        return signal, {
+            "conf_hold": ph,
+            "conf_buy": pb,
+            "conf_sell": ps,
+            "input_summary": summary,
+        }

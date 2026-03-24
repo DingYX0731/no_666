@@ -1,0 +1,80 @@
+# DRL auto-tune configuration for "train -> backtest -> evaluate -> promote best"
+#
+# This config is intentionally lightweight and optimized for first integration.
+# Extend search_space and constraints as you iterate.
+
+baseline_train_config: configs/ml/drl_train.yaml
+
+# Random search over a small subset of parameters.
+search_space:
+  # PPO hyperparameters
+  ppo.learning_rate: [1.0e-4, 3.0e-4]
+  ppo.ent_coef: [0.01, 0.02]
+
+  # Environment/reward shaping
+  env.holding_penalty_per_step: [2.0e-5, 5.0e-5, 1.0e-4]
+  env.holding_penalty_growth: [1.0e-4, 5.0e-4, 1.0e-3]
+  env.invalid_action_penalty: [5.0e-5, 1.0e-4, 2.0e-4]
+  env.sell_execution_bonus: [1.0e-5, 2.0e-5, 5.0e-5]
+  env.realized_pnl_reward_scale: [0.01, 0.02, 0.05]
+
+  # Optional: shorten training per trial during early tuning
+  # train.timesteps: [300000, 600000]
+
+constraints:
+  min_trades: 20
+  # Extra behavior constraints to reduce HOLD/one-action collapse.
+  # Set to 0/disabled to ignore.
+  min_sell_trades: 0
+  max_single_action_ratio: 0.99
+  min_effective_trading_rate: 0.0
+  min_return_pct: 0.05
+  max_drawdown_pct: 0.20
+
+objective:
+  # score = return_pct - alpha * max_drawdown_pct + beta * log(1 + trades)
+  alpha: 1.0
+  beta: 0.1
+  # Blend validation score into final ranking (only influences objective ordering).
+  validation_weight: 0.2
+
+validation:
+  enabled: true
+  # Use a sub-window within the backtest range for the fast pre-screen.
+  window_start: 0.0
+  window_end: 0.5
+
+budget:
+  max_trials: 12
+  patience: 12
+  seed: 42
+  # If you want to average multiple seeds for each sampled config, set to [seed1, seed2, ...].
+  seed_list: [42]
+
+backtest:
+  data_source: binance
+  symbol: BTC/USD
+  interval: 1h
+  frequency: daily
+  market: spot
+  quote_asset: USDT
+  start_date: 2024-01-01
+  end_date: 2024-01-31
+  limit: 0
+  cache_dir: data_cache/binance_public_data
+
+  # Backtest output details per trial
+  log_steps: true
+  log_chart: true
+
+artifact:
+  # logs/tuning/YYYYMMDD/<run_name>/trial_XXXX/...
+  base_dir: logs/tuning
+  run_name: drl_auto_tune
+  trial_models_subdir: models
+
+promotion:
+  enabled: true
+  target_model_dir: checkpoints/drl
+  backup_existing: true
+

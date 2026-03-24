@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -67,3 +68,29 @@ def setup_run_logger(base_dir: str = "logs/trading", run_name: str | None = None
     logger.addHandler(file_handler)
 
     return logger, log_path
+
+
+def prepare_backtest_artifact_dir(
+    *,
+    base_dir: str = "logs/backtest",
+    symbol: str,
+    strategy: str,
+) -> Path:
+    """Create a per-run folder for backtest CSV + charts (same style as training/trading logs).
+
+    Layout::
+        logs/backtest/YYYYMMDD/<HHMMSS>_<PAIRSLUG>_<strategy>/
+
+    Typical files written there by ``backtest.run_backtest``::
+        steps.csv, backtest_chart.png
+    """
+    now = datetime.utcnow()
+    day = now.strftime("%Y%m%d")
+    ts = now.strftime("%H%M%S")
+    sym = symbol.strip().upper().replace("/", "").replace("-", "")
+    pair_slug = re.sub(r"[^A-Z0-9]", "", sym) or "PAIR"
+    strat_slug = re.sub(r"[^a-z0-9]+", "_", strategy.strip().lower()).strip("_") or "strategy"
+    run_name = f"{ts}_{pair_slug}_{strat_slug}"
+    out = Path(base_dir) / day / run_name
+    out.mkdir(parents=True, exist_ok=True)
+    return out

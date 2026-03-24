@@ -1,4 +1,4 @@
-# no\_666
+# no666
 
 Automated cryptocurrency trading framework with pluggable strategy support, historical data pipelines, and model training infrastructure.
 
@@ -62,11 +62,13 @@ python run_ops.py products
 
 All strategies extend `strategy.BaseStrategy` and implement `generate_signal()`. Strategy parameters are loaded from `configs/strategies/<name>.yaml`.
 
-| Strategy | Config | Description |
-|----------|--------|-------------|
-| `ma` | `configs/strategies/ma.yaml` | Moving average crossover |
-| `mlp` | `configs/strategies/mlp.yaml` | Trained MLP binary classifier |
-| `drl` | `configs/strategies/drl.yaml` | PPO agent with MLP+LSTM extractor (one checkpoint per pair) |
+
+| Strategy | Config                        | Description                                                 |
+| -------- | ----------------------------- | ----------------------------------------------------------- |
+| `ma`     | `configs/strategies/ma.yaml`  | Moving average crossover                                    |
+| `mlp`    | `configs/strategies/mlp.yaml` | Trained MLP binary classifier                               |
+| `drl`    | `configs/strategies/drl.yaml` | PPO agent with MLP+LSTM extractor (one checkpoint per pair) |
+
 
 ### Adding a New Strategy
 
@@ -78,13 +80,15 @@ All strategies extend `strategy.BaseStrategy` and implement `generate_signal()`.
 
 Training and inference configs are intentionally separated:
 
-| Purpose | Path |
-|---------|------|
-| MLP training | `configs/ml/mlp_train.yaml` |
-| DRL training | `configs/ml/drl_train.yaml` |
-| MA inference | `configs/strategies/ma.yaml` |
+
+| Purpose       | Path                          |
+| ------------- | ----------------------------- |
+| MLP training  | `configs/ml/mlp_train.yaml`   |
+| DRL training  | `configs/ml/drl_train.yaml`   |
+| MA inference  | `configs/strategies/ma.yaml`  |
 | MLP inference | `configs/strategies/mlp.yaml` |
 | DRL inference | `configs/strategies/drl.yaml` |
+
 
 ## Trading
 
@@ -104,18 +108,34 @@ Logs are written to `logs/trading/YYYYMMDD/<run_name>/trader.log`.
 ## Backtesting
 
 ```bash
-# Synthetic data
-python run_backtest.py --data-source synthetic --strategy ma
+# Synthetic data (writes logs/backtest/... when using --save-artifacts)
+python run_backtest.py --data-source synthetic --strategy ma --save-artifacts
 
-# Binance historical data
-python run_backtest.py --data-source binance --symbol BTC/USD --interval 1h \
-  --start-date 2024-01-01 --end-date 2024-02-01 --strategy drl
+# Binance: product, kline interval, date range, strategy + config (full examples in docs/BACKTEST.md)
+python run_backtest.py \
+  --data-source binance \
+  --symbol BTC/USD \
+  --interval 1h \
+  --frequency daily \
+  --market spot \
+  --quote-asset USDT \
+  --start-date 2024-01-01 \
+  --end-date 2024-02-01 \
+  --strategy drl \
+  --strategy-config configs/strategies/drl.yaml \
+  --save-artifacts
 
 # CSV file
-python run_backtest.py --data-source csv --csv data.csv --price-col close --strategy ma
+python run_backtest.py \
+  --data-source csv \
+  --csv data.csv \
+  --price-col close \
+  --strategy ma \
+  --strategy-config configs/strategies/ma.yaml \
+  --save-artifacts
 ```
 
-Results (Start Equity, End Equity, Return, Max Drawdown, Trades) are printed to stdout. See `docs/BACKTEST.md` for field meanings and how to save output.
+Results (Start Equity, End Equity, Return, Max Drawdown, Trades) print to stdout. With `**--save-artifacts**`, per-bar `**steps.csv**` and `**backtest_chart.png**` go under `**logs/backtest/YYYYMMDD/<run>/**` (same style as `logs/training/` and `logs/trading/`). See `docs/BACKTEST.md` for columns, overrides (`--report-dir`, `--step-log`, `--plot`), and more examples.
 
 ## Model Training
 

@@ -3,7 +3,8 @@ data:
   interval: 1h
   frequency: daily
   market: spot
-  start_date: 2024-01-01
+  # Use a long mixed-regime window (up/down/chop) to avoid buy-and-hold collapse.
+  start_date: 2022-01-01
   end_date: 2024-03-31
   limit: 0
   quote_asset: USDT
@@ -20,6 +21,12 @@ env:
   # All-in buy/sell to match backtest engine behavior
   buy_fraction: 1.0
   sell_fraction: 1.0
+  # Reward shaping (training only): discourage "always BUY" and reward useful exits.
+  holding_penalty_per_step: 0.00005
+  holding_penalty_growth: 0.0005
+  sell_execution_bonus: 0.00002
+  invalid_action_penalty: 0.0001
+  realized_pnl_reward_scale: 0.02
 
 architecture:
   lstm_hidden_size: 64
@@ -31,19 +38,38 @@ architecture:
   policy_hidden_dims: "64,64"
 
 ppo:
-  learning_rate: 0.0003
-  n_steps: 512
-  batch_size: 64
-  gamma: 0.99
-  gae_lambda: 0.95
-  ent_coef: 0.01
+  learning_rate: 0.0001
+  n_steps: 2048
+  batch_size: 256
+  gamma: 0.995
+  gae_lambda: 0.97
+  ent_coef: 0.02
   clip_range: 0.2
 
 train:
-  timesteps: 200000
+  timesteps: 1200000
   seed: 42
   # auto = use CUDA if available; cuda = force GPU; cpu = force CPU
   device: auto
+
+# Periodic validation to detect reward/loss collapse and enable best-model selection.
+validation:
+  enabled: true
+  # Run validation every N environment steps (PPO internal global steps).
+  eval_every_steps: 100000
+  # One deterministic episode is enough for a fixed validation window.
+  eval_episodes: 1
+  # Validation window in [0,1] ratio over the dataset indices (time-ordered).
+  # Example: [0.8, 0.9] means use the last 10% region as validation.
+  window_start: 0.8
+  window_end: 0.9
+  # Metric used to save "best model" checkpoint during training.
+  # supported: return_pct, score
+  save_best_by: return_pct
+  # Early stop if validation metric does not improve for N validations.
+  early_stop_patience_evals: 5
+  # When saving the best model, append this field into meta for debugging.
+  store_best_on_validation_step: true
 
 out:
   out_dir: checkpoints/drl

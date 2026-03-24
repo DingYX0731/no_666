@@ -8,6 +8,8 @@ from typing import Any
 import yaml
 
 from .base import BaseStrategy
+from .bb_rsi_strategy import BollingerRSIStrategy
+from .buy_hold_strategy import BuyAndHoldStrategy
 from .drl_strategy import DRLSb3Strategy
 from .ma_strategy import MovingAverageCrossStrategy
 from .mlp_strategy import MLPCheckpointStrategy
@@ -16,6 +18,8 @@ _STRATEGY_REGISTRY = {
     "ma": MovingAverageCrossStrategy,
     "mlp": MLPCheckpointStrategy,
     "drl": DRLSb3Strategy,
+    "bb_rsi": BollingerRSIStrategy,
+    "buy_hold": BuyAndHoldStrategy,
 }
 
 

@@ -47,6 +47,13 @@ Default 17 features:
 16. `trade_quote_log1p`
 17. `trade_maker_ratio`
 
+## Processed cache
+
+`build_market_feature_dataset` caches processed datasets under `data_cache/processed/`
+when `use_cache=True` (default). Same params (symbol, interval, dates, etc.) reuse
+the cache instead of re-fetching and re-processing. Set `use_cache=False` to force
+rebuild. Set `verbose=False` to suppress progress logs.
+
 ## Alignment rule
 
 - Use each kline `open_time` as the anchor.
